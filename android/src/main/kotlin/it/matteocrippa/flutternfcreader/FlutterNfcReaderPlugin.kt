@@ -9,6 +9,7 @@ import android.nfc.tech.Ndef
 import android.os.Build
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry.Registrar
@@ -17,7 +18,7 @@ import java.nio.charset.Charset
 
 const val PERMISSION_NFC = 1007
 
-class FlutterNfcReaderPlugin(val registrar: Registrar) : MethodCallHandler,  NfcAdapter.ReaderCallback {
+class FlutterNfcReaderPlugin(val registrar: Registrar) : MethodCallHandler,  NfcAdapter.ReaderCallback, EventChannel.StreamHandler {
 
     private val activity = registrar.activity()
 
@@ -31,14 +32,23 @@ class FlutterNfcReaderPlugin(val registrar: Registrar) : MethodCallHandler,  Nfc
     private var kContent = "nfcContent"
     private var kError = "nfcError"
     private var kStatus = "nfcStatus"
+    private var kErrorCode = 0
+
+    private var eventSink: EventChannel.EventSink? = null
 
     private var READER_FLAGS = NfcAdapter.FLAG_READER_NFC_A
 
     companion object {
         @JvmStatic
         fun registerWith(registrar: Registrar): Unit {
-            val channel = MethodChannel(registrar.messenger(), "flutter_nfc_reader")
-            channel.setMethodCallHandler(FlutterNfcReaderPlugin(registrar))
+
+            val instance = FlutterNfcReaderPlugin(registrar)
+
+            val channel = MethodChannel(registrar.messenger(), "flutter_nfc_reader/read")
+            channel.setMethodCallHandler(instance)
+
+            var eventChannel = EventChannel(registrar.messenger(), "flutter_nfc_reader/stream")
+            eventChannel.setStreamHandler(instance)
         }
     }
 
@@ -116,8 +126,13 @@ class FlutterNfcReaderPlugin(val registrar: Registrar) : MethodCallHandler,  Nfc
         val id = bytesToHexString(tag?.id) ?: ""
         ndef?.close()
         if (message != null) {
-            val data = mapOf(kId to id, kContent to message, kError to "", kStatus to "read")
+            val data = mapOf(kId to id, kContent to message, kError to "", kStatus to "read", kErrorCode to 0)
             resulter?.success(data)
+
+            //if (messageStreamHandler != null) {
+                send(data)
+            //}
+
         }
     }
 
@@ -135,5 +150,34 @@ class FlutterNfcReaderPlugin(val registrar: Registrar) : MethodCallHandler,  Nfc
         }
 
         return stringBuilder.toString()
+    }
+
+
+    override fun onListen(arguments: Any?, sink: EventChannel.EventSink) {
+        eventSink = sink
+        startNFC()
+    }
+
+    fun send(data: Any) {
+        eventSink?.success(data)
+    }
+
+    override fun onCancel(p0: Any?) {
+        eventSink = null
+    }
+}
+
+class MessageStreamHandler : EventChannel.StreamHandler {
+    private var eventSink: EventChannel.EventSink? = null
+    override fun onListen(arguments: Any?, sink: EventChannel.EventSink) {
+        eventSink = sink
+    }
+
+    fun send(data: Any) {
+        eventSink?.success(data)
+    }
+
+    override fun onCancel(p0: Any?) {
+        eventSink = null
     }
 }
